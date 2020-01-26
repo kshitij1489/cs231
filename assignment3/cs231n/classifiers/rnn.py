@@ -149,6 +149,8 @@ class CaptioningRNN(object):
         # (3) h_rnn: NxTxH, h0: NxH, Wx: WxH, Wh: HxH, b: Hx1
         if self.cell_type == 'rnn':
             h_rnn, cache_rnn = rnn_forward(embedding_in, h0, Wx, Wh, b)
+        else: # lstm
+            h_rnn, cache_rnn = lstm_forward(embedding_in, h0, Wx, Wh, b)
         # (4) out_temp_affine: NxTxV, h_rnn: NxTxH, W_vocab: HxV, b_vocab: Vx1
         out_temp_affine, cache_temp_affine = temporal_affine_forward(h_rnn, W_vocab, b_vocab)
         # (5) loss: Nx1, x: NxTxV, captions_out: NxT, mask: NxT
@@ -158,7 +160,10 @@ class CaptioningRNN(object):
         
         # Gradiant computation
         dh_rnn, dW_vocab, db_vocab = temporal_affine_backward(dout, cache_temp_affine)
-        dembedding_in, dh0, dWx, dWh, db = rnn_backward(dh_rnn, cache_rnn)
+        if self.cell_type == 'rnn':
+            dembedding_in, dh0, dWx, dWh, db = rnn_backward(dh_rnn, cache_rnn)
+        else: # lstm
+            dembedding_in, dh0, dWx, dWh, db = lstm_backward(dh_rnn, cache_rnn)
         dW_embed = word_embedding_backward(dembedding_in, cache_embedding)
         _, dW_proj, db_proj = affine_backward(dh0, cache_0)
         
@@ -234,12 +239,17 @@ class CaptioningRNN(object):
 
         prev_h, _ = affine_forward(features, W_proj, b_proj)
         vocab_index = self._start
+        prev_c = np.zeros_like(prev_h) # for lstm
         for i in range(max_length):
             word = W_embed[vocab_index]
-            next_h, _ = rnn_step_forward(word, prev_h, Wx, Wh, b)
+            if self.cell_type == 'rnn':
+                next_h, _ = rnn_step_forward(word, prev_h, Wx, Wh, b)
+            else: #lstm
+                next_h, next_c, _ = lstm_step_forward(word, prev_h, prev_c, Wx, Wh, b)
             word_dist, _ = affine_forward(next_h, W_vocab, b_vocab)
             vocab_index = np.argmax(word_dist, axis=1)
             prev_h = next_h
+            prev_c = next_c # for lstm
             captions[:,i] = vocab_index
 
         # *****END OF YOUR CODE (DO NOT DELETE/MODIFY THIS LINE)*****
